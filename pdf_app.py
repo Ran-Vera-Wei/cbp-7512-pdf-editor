@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import zipfile
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -258,11 +259,29 @@ def process_pdf(pdf_bytes: bytes, values: dict[str, str]) -> bytes:
     return _build_output(values, image)
 
 
-def safe_output_name(awb: str) -> str:
+def safe_archive_name(awb: str) -> str:
     safe_awb = re.sub(r"[^A-Za-z0-9._-]+", "", awb.strip()).strip("._-")
     if not safe_awb:
         raise ProcessingError("Enter a valid Export AWB #.")
-    return f"{safe_awb}_7512.pdf"
+    return f"{safe_awb}_7512_batch.zip"
+
+
+def safe_pdf_output_name(source_name: str, index: int, used_names: set[str]) -> str:
+    basename = source_name.replace("\\", "/").rsplit("/", 1)[-1]
+    source_stem = Path(basename).stem
+    safe_stem = re.sub(r"[^A-Za-z0-9._-]+", "_", source_stem).strip("._-")
+    if not safe_stem:
+        safe_stem = f"document_{index:02d}"
+
+    output_name = f"{safe_stem}_edited_7512.pdf"
+    if output_name.casefold() in used_names:
+        output_name = f"{safe_stem}_edited_7512_{index:02d}.pdf"
+    suffix = 2
+    while output_name.casefold() in used_names:
+        output_name = f"{safe_stem}_edited_7512_{index:02d}_{suffix}.pdf"
+        suffix += 1
+    used_names.add(output_name.casefold())
+    return output_name
 
 
 def load_consignee_mapping() -> dict[str, list[str]]:
@@ -307,7 +326,12 @@ def main() -> None:
         st.error(str(exc))
         st.stop()
 
-    uploaded_pdf = st.file_uploader("Original CBP Form 7512 PDF", type=["pdf"])
+    uploaded_pdfs = st.file_uploader(
+        "Original CBP Form 7512 PDFs",
+        type=["pdf"],
+        accept_multiple_files=True,
+    )
+        st.caption("Select multiple PDFs. The same shipment details will be applied to every file; multiple results are packaged in one ZIP download.")
     st.subheader("Destination and consignee")
     code_input = st.text_input(
         "Three-character destination code *",
@@ -344,11 +368,11 @@ def main() -> None:
             gross_weight = st.text_input("7. Gross weight (KG) *", placeholder="e.g. 125.5")
             value = st.text_input("8. Value ($) *", placeholder="e.g. 100.00")
         st.caption("Fixed fields: #3 Flag = US; #5 Description = SHOES, FOOTWEAR WOMEN'S DRESSES MEN'S SHIRTS")
-        submitted = st.form_submit_button("Create preview PDF", type="primary", use_container_width=True)
+        submitted = st.form_submit_button("Process all PDFs", type="primary", use_container_width=True)
 
     if submitted:
-        if uploaded_pdf is None:
-            st.error("Upload the original CBP Form 7512 PDF first.")
+        if not uploaded_pdfs:
+            st.error("Upload at least one CBP Form 7512 PDF first.")
         elif not export_awb.strip():
             st.error("Export AWB # is required.")
         elif not valid_destination:
@@ -372,20 +396,57 @@ def main() -> None:
                     "gross_weight": f"{format(weight_number.normalize(), 'f')} KG",
                     "value": f"${format(value_number, '.2f')}",
                 }
-                output_bytes = process_pdf(uploaded_pdf.getvalue(), values)
-                output_name = safe_output_name(export_awb)
-                st.success("Preview PDF is ready. Red entries were cleared; fields #1-8 were filled according to the instruction page.")
-                st.download_button(
-                    "Download preview PDF",
-                    data=output_bytes,
-                    file_name=output_name,
-                    mime="application/pdf",
-                    use_container_width=True,
-                )
+                archive_name = safe_archive_name(export_awb)
             except ProcessingError as exc:
                 st.error(str(exc))
-            except Exception:
-                st.error("PDF processing failed. Confirm that the file is a clean CBP Form 7512 PDF and try again.")
+            else:
+                processed_files: list[tuple[str, str, bytes]] = []
+                processing_errors: list[tuple[str, str]] = []
+                used_names: set[str] = set()
+
+                for index, uploaded_pdf in enumerate(uploaded_pdfs, start=1):
+                    try:
+                        output_bytes = process_pdf(uploaded_pdf.getvalue(), values)
+                        output_name = safe_pdf_output_name(uploaded_pdf.name, index, used_names)
+                        processed_files.append((uploaded_pdf.name, output_name, output_bytes))
+                    except ProcessingError as exc:
+                        processing_errors.append((uploaded_pdf.name, str(exc)))
+                    except Exception:
+                        processing_errors.append(
+                            (uploaded_pdf.name, "PDF processing failed. Confirm that it is a clean, one-page CBP Form 7512 PDF and try again.")
+                        )
+
+                if processing_errors:
+                    st.warning(f"{len(processing_errors)} of {len(uploaded_pdfs)} file(s) could not be processed.")
+                    for source_name, message in processing_errors:
+                        st.error(f"{source_name}: {message}")
+
+                if processed_files:
+                    st.success(f"Processed {len(processed_files)} of {len(uploaded_pdfs)} PDF file(s).")
+                    if len(uploaded_pdfs) == 1 and len(processed_files) == 1:
+                        _, output_name, output_bytes = processed_files[0]
+                        st.download_button(
+                            "Download edited PDF",
+                            data=output_bytes,
+                            file_name=output_name,
+                            mime="application/pdf",
+                            use_container_width=True,
+                        )
+                    else:
+                        archive = io.BytesIO()
+                        with zipfile.ZipFile(archive, mode="w", compression=zipfile.ZIP_DEFLATED) as zip_file:
+                            for _, output_name, output_bytes in processed_files:
+                                zip_file.writestr(output_name, output_bytes)
+                        st.download_button(
+                            f"Download {len(processed_files)} edited PDF(s) (ZIP)",
+                            data=archive.getvalue(),
+                            file_name=archive_name,
+                            mime="application/zip",
+                            use_container_width=True,
+                        )
+                        with st.expander("Processed files"):
+                            for source_name, output_name, _ in processed_files:
+                                st.write(f"{source_name} → {output_name}")
 
     with st.expander("Field placement guide"):
         st.markdown(
