@@ -13,6 +13,6 @@ streamlit run pdf_app.py
 
 ## Deploy to Streamlit Community Cloud
 
-Keep this repository private because `consignee_mapping.json` contains the consignee directory. In Streamlit Community Cloud, create an app from this repository, select the `main` branch, and use `pdf_app.py` as the entrypoint. A private repository keeps the deployed app private by default.
+This repository and app are public. `consignee_mapping.json` contains the consignee directory, and the app exposes consignee choices derived from that file. Publish only while this disclosure is approved.
 
-The app processes uploaded shipment PDFs in memory and does not write them to the app server's disk. Do not commit shipment-specific PDFs or local secrets to this repository.
+Create an app from this repository, select the `main` branch, and use `pdf_app.py` as the entrypoint. The app processes uploaded shipment PDFs in memory and does not write them to the app server's disk. Do not commit shipment-specific PDFs or local secrets to this repository.
