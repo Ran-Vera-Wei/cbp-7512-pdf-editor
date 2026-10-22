@@ -331,7 +331,7 @@ def main() -> None:
         type=["pdf"],
         accept_multiple_files=True,
     )
-        st.caption("Select multiple PDFs. The same shipment details will be applied to every file; multiple results are packaged in one ZIP download.")
+    st.caption("Select multiple PDFs. The same shipment details will be applied to every file; multiple results are packaged in one ZIP download.")
     st.subheader("Destination and consignee")
     code_input = st.text_input(
         "Three-character destination code *",
