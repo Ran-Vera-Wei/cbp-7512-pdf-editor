@@ -33,7 +33,7 @@ PORT_CHOICES = {
 }
 CLEAR_BOXES = (
     (294, 146, 408, 159.5),  # 1. Car number and initial
-    (68, 189.0, 596.0, 204.8),  # 2. Entire Consignee text area; preserve its underline
+    (68, 189.0, 460.0, 204.8),  # 2. Consignee text area; preserve adjacent note and underline
     (290, 241, 359, 251.6),  # 3. Flag
     (111, 216.5, 293.5, 228.7),  # 4. Foreign port of lading
     (490.5, 236.0, 592.0, 248.8),  # Last foreign port value; preserve the underline
