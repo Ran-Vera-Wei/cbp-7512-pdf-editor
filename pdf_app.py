@@ -284,25 +284,42 @@ def safe_pdf_output_name(source_name: str, index: int, used_names: set[str]) -> 
     return output_name
 
 
-def load_consignee_mapping() -> dict[str, list[str]]:
-    mapping_path = Path(__file__).with_name("consignee_mapping.json")
+def load_client_consignee_mapping() -> dict[str, dict[str, list[str]]]:
+    mapping_path = Path(__file__).with_name("client_consignees.json")
     try:
         raw_mapping = json.loads(mapping_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ProcessingError("The consignee mapping file could not be loaded.") from exc
+        raise ProcessingError("The client and consignee mapping file could not be loaded.") from exc
 
-    mapping: dict[str, list[str]] = {}
-    for code, values in raw_mapping.items():
-        normalized_code = str(code).strip().upper()
-        if re.fullmatch(r"[A-Z]{3}", normalized_code):
-            choices = [str(value).strip() for value in values if str(value).strip()]
-            if choices:
-                mapping[normalized_code] = choices
+    mapping: dict[str, dict[str, list[str]]] = {}
+    if not isinstance(raw_mapping, dict):
+        raise ProcessingError("The client and consignee mapping file has an invalid format.")
+
+    for raw_client, raw_destinations in raw_mapping.items():
+        client = str(raw_client).strip()
+        if not client or not isinstance(raw_destinations, dict):
+            continue
+        destinations: dict[str, list[str]] = {}
+        for raw_code, raw_consignees in raw_destinations.items():
+            code = str(raw_code).strip().upper()
+            if re.fullmatch(r"[A-Z]{3}", code) and isinstance(raw_consignees, list):
+                choices = [str(value).strip() for value in raw_consignees if str(value).strip()]
+                if choices:
+                    destinations[code] = choices
+        if destinations:
+            mapping[client] = destinations
     return mapping
 
 
 def _uppercase_destination_code() -> None:
     st.session_state.destination_code = st.session_state.destination_code.strip().upper()
+
+
+def _reset_destination_for_client_change() -> None:
+    st.session_state.destination_code = ""
+    for key in list(st.session_state.keys()):
+        if key.startswith("consignee_"):
+            del st.session_state[key]
 
 
 def _parse_positive_decimal(value: str, label: str) -> Decimal:
@@ -318,10 +335,10 @@ def _parse_positive_decimal(value: str, label: str) -> Decimal:
 def main() -> None:
     st.set_page_config(page_title="CBP 7512 PDF Editor", page_icon="📄", layout="wide")
     st.title("CBP Form 7512 PDF Editor")
-    st.caption("Upload the original form, enter the shipment details, and download the edited PDF.")
+    st.caption("Upload the original form, enter the shipment details, and download the edited PDF. PDF内容只在本次会话内存中处理。")
 
     try:
-        consignee_mapping = load_consignee_mapping()
+        client_consignee_mapping = load_client_consignee_mapping()
     except ProcessingError as exc:
         st.error(str(exc))
         st.stop()
@@ -332,26 +349,42 @@ def main() -> None:
         accept_multiple_files=True,
     )
     st.caption("Select multiple PDFs. The same shipment details will be applied to every file; multiple results are packaged in one ZIP download.")
-    st.subheader("Destination and consignee")
+    st.subheader("Client, destination and consignee")
+    client_choice = st.selectbox(
+        "Client *",
+        options=["-- Select a Client --", *client_consignee_mapping.keys()],
+        key="client_choice",
+        on_change=_reset_destination_for_client_change,
+    )
+    client_selected = client_choice in client_consignee_mapping
+    client_destinations = client_consignee_mapping.get(client_choice, {})
     code_input = st.text_input(
         "Three-character destination code *",
         max_chars=3,
         placeholder="e.g. SAP",
         key="destination_code",
         on_change=_uppercase_destination_code,
+        disabled=not client_selected,
     )
     destination_code = code_input.strip().upper()
-    consignee_options = consignee_mapping.get(destination_code, [])
-    valid_destination = bool(re.fullmatch(r"[A-Z]{3}", destination_code)) and bool(consignee_options)
-    consignee_choices = ["-- Select a Consignee --", *consignee_options] if valid_destination else ["-- Enter a valid code first --"]
+    consignee_options = client_destinations.get(destination_code, [])
+    valid_destination = client_selected and bool(re.fullmatch(r"[A-Z]{3}", destination_code)) and bool(consignee_options)
+    if valid_destination:
+        consignee_choices = ["-- Select a Consignee --", *consignee_options]
+    elif client_selected:
+        consignee_choices = ["-- Enter a valid destination code first --"]
+    else:
+        consignee_choices = ["-- Select a client first --"]
     consignee_choice = st.selectbox(
         "Consignee *",
         options=consignee_choices,
-        key=f"consignee_{destination_code or 'empty'}",
+        key=f"consignee_{client_choice}_{destination_code or 'empty'}",
         disabled=not valid_destination,
     )
-    if destination_code and not valid_destination:
-        st.info("Enter a three-character destination code found in the consignee list.")
+    if client_selected:
+        st.caption(f"Available destinations: {', '.join(client_destinations)}")
+    if destination_code and client_selected and not valid_destination:
+        st.info("Enter a three-character destination code available for the selected client.")
 
     with st.form("form_7512_values", clear_on_submit=False):
         st.subheader("Fields to add")
@@ -373,10 +406,12 @@ def main() -> None:
     if submitted:
         if not uploaded_pdfs:
             st.error("Upload at least one CBP Form 7512 PDF first.")
+        elif not client_selected:
+            st.error("Choose a client.")
         elif not export_awb.strip():
             st.error("Export AWB # is required.")
         elif not valid_destination:
-            st.error("Enter a valid three-character destination code.")
+            st.error("Enter a valid three-character destination code for the selected client.")
         elif consignee_choice == "-- Select a Consignee --":
             st.error("Choose a Consignee for the destination code.")
         elif not port_code:
@@ -451,7 +486,7 @@ def main() -> None:
     with st.expander("Field placement guide"):
         st.markdown(
             "The app follows the green numbered markers in the supplied instruction PDF. "
-            "#1 Export AWB # is placed over the red value in Car number and initial. #2 Consignee options are filtered by the three-character destination code. "
+            "#1 Export AWB # is placed over the red value in Car number and initial. #2 Consignee options are filtered by client and three-character destination code. "
             "#3 is fixed to US; #4 maps CN/HK to the specified port text; #5 is the fixed description; #6-8 use the entered package count, gross weight, and value. "
             "The existing B/L No. and Exported from row are preserved. The page is flattened at 300 dpi to remove old content, so form text in the output is not selectable."
         )
