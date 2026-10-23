@@ -141,15 +141,22 @@ def _draw_single_line(
 def _draw_consignee(pdf_canvas: canvas.Canvas, text: str) -> None:
     _check_supported_text(text, "Consignee")
     max_width = 385
-    size = 5.0
+    size = 7.0
     lines = _wrapped_lines(text, max_width, size)
-    while len(lines) > 2 and size > 4.0:
-        size -= 0.25
-        lines = _wrapped_lines(text, max_width, size)
-    if len(lines) > 2:
-        raise ProcessingError("Consignee is too long to fit in its field.")
+    truncated = len(lines) > 2
+    lines = lines[:2]
+    if truncated and lines:
+        lines[-1] = _truncate_line(f"{lines[-1]}...", max_width, size)
     for index, line in enumerate(lines):
-        _draw_text(pdf_canvas, line, 72.5, 190.5 + index * 6.2, size)
+        _draw_text(pdf_canvas, line, 72.5, 190.5 + index * 8.0, size)
+
+
+def _truncate_line(text: str, max_width: float, font_size: float) -> str:
+    suffix = "..."
+    candidate = text.rstrip()
+    while candidate and stringWidth(candidate + suffix, FONT, font_size) > max_width:
+        candidate = candidate[:-1].rstrip()
+    return f"{candidate}{suffix}"
 
 
 def _draw_block(pdf_canvas: canvas.Canvas, block: TextBlock, *, label: str) -> None:
@@ -487,6 +494,7 @@ def main() -> None:
         st.markdown(
             "The app follows the green numbered markers in the supplied instruction PDF. "
             "#1 Export AWB # is placed over the red value in Car number and initial. #2 Consignee options are filtered by client and three-character destination code. "
+            "Consignee text uses a fixed 7 pt font and is truncated with an ellipsis if it exceeds two lines. "
             "#3 is fixed to US; #4 maps CN/HK to the specified port text; #5 is the fixed description; #6-8 use the entered package count, gross weight, and value. "
             "The existing B/L No. and Exported from row are preserved. The page is flattened at 300 dpi to remove old content, so form text in the output is not selectable."
         )
