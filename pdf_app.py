@@ -318,7 +318,7 @@ def _parse_positive_decimal(value: str, label: str) -> Decimal:
 def main() -> None:
     st.set_page_config(page_title="CBP 7512 PDF Editor", page_icon="📄", layout="wide")
     st.title("CBP Form 7512 PDF Editor")
-    st.caption("Upload the original form, enter the shipment details, and download the edited PDF. PDF内容只在本次会话内存中处理。")
+    st.caption("Upload the original form, enter the shipment details, and download the edited PDF.")
 
     try:
         consignee_mapping = load_consignee_mapping()
