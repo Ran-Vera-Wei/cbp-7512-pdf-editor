@@ -36,6 +36,7 @@ CLEAR_BOXES = (
     (68, 193.5, 242, 205.5),  # 2. Consignee
     (290, 241, 359, 251.6),  # 3. Flag
     (111, 216.5, 293.5, 228.7),  # 4. Foreign port of lading
+    (490.5, 236.0, 592.0, 248.8),  # Last foreign port value; preserve the underline
     (20, TABLE_TOP - 1, 88, TABLE_BOTTOM),  # 6. Marks and packages
     (93, TABLE_TOP - 1, 316, TABLE_BOTTOM),  # 5. Description and quantity
     (320, TABLE_TOP - 1, 395, TABLE_BOTTOM),  # 7. Gross weight
@@ -194,6 +195,14 @@ def _build_output(values: dict[str, str], background: Image.Image) -> bytes:
         top=218.0,
         max_width=166,
         label="Foreign port of lading",
+    )
+    _draw_single_line(
+        pdf_canvas,
+        values["foreign_port"],
+        x=493.0,
+        top=241.3,
+        max_width=97.0,
+        label="Last foreign port",
     )
     _draw_block(
         pdf_canvas,
@@ -495,7 +504,7 @@ def main() -> None:
             "The app follows the green numbered markers in the supplied instruction PDF. "
             "#1 Export AWB # is placed over the red value in Car number and initial. #2 Consignee options are filtered by client and three-character destination code. "
             "Consignee text uses a fixed 7 pt font and is truncated with an ellipsis if it exceeds two lines. "
-            "#3 is fixed to US; #4 maps CN/HK to the specified port text; #5 is the fixed description; #6-8 use the entered package count, gross weight, and value. "
+            "#3 is fixed to US; #4 maps CN/HK to the specified port text and copies it into Last foreign port; #5 is the fixed description; #6-8 use the entered package count, gross weight, and value. "
             "The existing B/L No. and Exported from row are preserved. The page is flattened at 300 dpi to remove old content, so form text in the output is not selectable."
         )
 
