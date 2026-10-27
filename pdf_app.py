@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 import re
+import unicodedata
 import zipfile
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -64,6 +65,12 @@ def _check_supported_text(text: str, label: str) -> None:
         raise ProcessingError(
             f"{label} contains a character that this CBP form font cannot display. Use standard Latin characters and punctuation."
         ) from exc
+
+
+def _normalize_form_text(text: str, label: str) -> str:
+    normalized = unicodedata.normalize("NFKC", text)
+    _check_supported_text(normalized, label)
+    return normalized
 
 
 def _wrap_line(text: str, max_width: float, font_size: float) -> list[str]:
@@ -130,7 +137,7 @@ def _draw_single_line(
     min_size: float = 6.0,
     label: str,
 ) -> None:
-    _check_supported_text(text, label)
+    text = _normalize_form_text(text, label)
     size = preferred_size
     while size >= min_size and stringWidth(text, FONT, size) > max_width:
         size -= 0.25
@@ -140,7 +147,7 @@ def _draw_single_line(
 
 
 def _draw_consignee(pdf_canvas: canvas.Canvas, text: str) -> None:
-    _check_supported_text(text, "Consignee")
+    text = _normalize_form_text(text, "Consignee")
     max_width = 385
     size = 7.0
     lines = _wrapped_lines(text, max_width, size)
@@ -161,8 +168,8 @@ def _truncate_line(text: str, max_width: float, font_size: float) -> str:
 
 
 def _draw_block(pdf_canvas: canvas.Canvas, block: TextBlock, *, label: str) -> None:
-    _check_supported_text(block.text, label)
-    lines = _wrapped_lines(block.text, block.width, TABLE_FONT_SIZE)
+    text = _normalize_form_text(block.text, label)
+    lines = _wrapped_lines(text, block.width, TABLE_FONT_SIZE)
     max_lines = max(1, int((block.height - 2) // TABLE_LEADING))
     if len(lines) > max_lines:
         raise ProcessingError(
